@@ -1,0 +1,172 @@
+openapi: 3.0.3
+info:
+  title: API EnvioFacil - Módulo de Almacén
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/envios/{id}/estado:
+    patch:
+      tags:
+        - Envíos
+      summary: Modificar o cancelar el estado de un envío en almacén
+      description: >
+        Actualiza el campo estadoOrden de un envío según las transiciones
+        permitidas por la máquina de estados. No existe borrado físico:
+        la cancelación se registra como estado CANCELADA o ANULADA.
+        Si el nuevo estado es CANCELADA o ANULADA, motivoCancelacion es obligatorio.
+      operationId: actualizarEstadoEnvio
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador único e inmutable del envío (idEnvio, PK).
+          schema:
+            type: string
+            format: uuid
+            example: "123e4567-e89b-12d3-a456-426614174000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActualizarEstadoEnvioRequest'
+            examples:
+              avanzarEstado:
+                summary: Mover el paquete a tránsito
+                value:
+                  estadoOrden: EN_TRANSITO
+                  idOperador: OP-9876
+              cancelarEnvio:
+                summary: Cancelar un envío (requiere motivo)
+                value:
+                  estadoOrden: CANCELADA
+                  idOperador: OP-9876
+                  motivoCancelacion: Cliente solicitó la cancelación previa al envío.
+      responses:
+        '200':
+          description: Transición exitosa de estado, retornando el estado actualizado del envío y la fecha/hora.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envio'
+        '400':
+          description: Formato de guía o parámetros de entrada requeridos inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                formatoGuidInvalido:
+                  summary: Formato de guía o parámetro inválido
+                  value:
+                    codigo: 400
+                    mensaje: "El parámetro id debe ser un UUID válido."
+                    fecha: "2026-10-23T10:27:00Z"
+                motivoFaltante:
+                  summary: Falta motivo de cancelación
+                  value:
+                    codigo: 400
+                    mensaje: "El campo motivoCancelacion es requerido cuando el estado es CANCELADA o ANULADA."
+                    fecha: "2026-10-23T10:27:00Z"
+        '404':
+          description: No existe un envío con el id indicado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                envioNoEncontrado:
+                  summary: Envío inexistente
+                  value:
+                    codigo: 404
+                    mensaje: "No existe un envío con id 123e4567-e89b-12d3-a456-426614174000."
+                    fecha: "2026-10-23T10:27:00Z"
+        '409':
+          description: Rechazo por regla de negocio cuando la máquina de estados prohíbe la transacción.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                transicionProhibida:
+                  summary: Transición no permitida por la máquina de estados
+                  value:
+                    codigo: 409
+                    mensaje: "No se puede cancelar o modificar un paquete que ya fue entregado."
+                    fecha: "2026-10-23T10:27:00Z"
+components:
+  schemas:
+    Envio:
+      type: object
+      description: Representación del estado logístico del paquete dentro del almacén.
+      required:
+        - idEnvio
+        - estadoOrden
+        - fechaActualizacion
+        - idOperador
+      properties:
+        idEnvio:
+          type: string
+          format: uuid
+          readOnly: true
+          example: "123e4567-e89b-12d3-a456-426614174000"
+          description: Identificador único e inmutable del envío (PK).
+        estadoOrden:
+          type: string
+          enum: [RECIBIDO, EN_ALMACEN, EN_TRANSITO, ENTREGADO, CANCELADA, ANULADA]
+          example: "EN_TRANSITO"
+          description: Estado actual del paquete en el almacén.
+        fechaActualizacion:
+          type: string
+          format: date-time
+          example: "2026-10-23T10:27:00Z"
+          description: Fecha y hora exacta de la última actualización de estado.
+        idOperador:
+          type: string
+          example: "OP-9876"
+          description: ID del operador de almacén que realizó la modificación.
+        motivoCancelacion:
+          type: string
+          nullable: true
+          example: "Dirección de entrega no válida"
+          description: Obligatorio solo si el estado cambia a CANCELADA o ANULADA.
+    ActualizarEstadoEnvioRequest:
+      type: object
+      description: Payload requerido para modificar el estado de un envío.
+      required:
+        - estadoOrden
+        - idOperador
+      properties:
+        estadoOrden:
+          type: string
+          enum: [RECIBIDO, EN_ALMACEN, EN_TRANSITO, ENTREGADO, CANCELADA, ANULADA]
+          example: "CANCELADA"
+          description: Nuevo estado que tomará el envío.
+        idOperador:
+          type: string
+          example: "OP-9876"
+          description: ID del operador que efectúa el cambio.
+        motivoCancelacion:
+          type: string
+          example: "Cliente solicitó la cancelación previa al envío."
+          description: Requerido si el nuevo estado es CANCELADA o ANULADA.
+    ErrorResponse:
+      type: object
+      required:
+        - codigo
+        - mensaje
+        - fecha
+      properties:
+        codigo:
+          type: integer
+          example: 409
+          description: Código HTTP o de error de la aplicación.
+        mensaje:
+          type: string
+          example: "No se puede cancelar o modificar un paquete que ya fue entregado."
+          description: Detalle legible del error o regla de negocio infringida.
+        fecha:
+          type: string
+          format: date-time
+          example: "2026-10-23T10:27:00Z"
